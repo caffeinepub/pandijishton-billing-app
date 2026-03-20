@@ -10,16 +10,47 @@ import { toast } from "sonner";
 interface Product {
   id: number;
   name: string;
+  category: string;
   rate: number;
   qty: number;
 }
 
 const INITIAL_PRODUCTS: Product[] = [
-  { id: 1, name: "200 ml", rate: 25, qty: 0 },
-  { id: 2, name: "1 लीटर", rate: 110, qty: 0 },
-  { id: 3, name: "2 लीटर", rate: 210, qty: 0 },
-  { id: 4, name: "5 लीटर", rate: 520, qty: 0 },
-  { id: 5, name: "20 KG", rate: 1900, qty: 0 },
+  // Oil products
+  { id: 1, name: "200 ml", category: "तेल", rate: 25, qty: 0 },
+  { id: 2, name: "500 ml", category: "तेल", rate: 60, qty: 0 },
+  { id: 3, name: "1 लीटर", category: "तेल", rate: 110, qty: 0 },
+  { id: 4, name: "2 लीटर", category: "तेल", rate: 210, qty: 0 },
+  { id: 5, name: "5 लीटर", category: "तेल", rate: 520, qty: 0 },
+  { id: 6, name: "20 KG", category: "तेल", rate: 1900, qty: 0 },
+  { id: 17, name: "केरी नौलका", category: "तेल", rate: 0, qty: 0 },
+  { id: 18, name: "1/8 काला", category: "तेल", rate: 0, qty: 0 },
+  { id: 19, name: "1/4 काला", category: "तेल", rate: 0, qty: 0 },
+  // Satjug Masala
+  { id: 7, name: "Satjug बिरयानी मसाला", category: "मसाला", rate: 0, qty: 0 },
+  { id: 8, name: "Satjug छोले मसाला", category: "मसाला", rate: 0, qty: 0 },
+  { id: 9, name: "Satjug राजमा मसाला", category: "मसाला", rate: 0, qty: 0 },
+  { id: 10, name: "Satjug आलू मसाला", category: "मसाला", rate: 0, qty: 0 },
+  {
+    id: 11,
+    name: "Satjug शाही पनीर मसाला",
+    category: "मसाला",
+    rate: 0,
+    qty: 0,
+  },
+  {
+    id: 12,
+    name: "Satjug कढ़ाई पनीर मसाला",
+    category: "मसाला",
+    rate: 0,
+    qty: 0,
+  },
+  // Satjug Sendha Namak
+  { id: 13, name: "Satjug सेंधा नमक 500g", category: "नमक", rate: 0, qty: 0 },
+  { id: 14, name: "Satjug सेंधा नमक 1kg", category: "नमक", rate: 0, qty: 0 },
+  // Satjug Rice
+  { id: 15, name: "Satjug Green Rice 1kg", category: "चावल", rate: 0, qty: 0 },
+  { id: 16, name: "Satjug Pink Rice 1kg", category: "चावल", rate: 0, qty: 0 },
 ];
 
 function getTodayDate(): string {
@@ -57,6 +88,8 @@ const WHATSAPP_ICON = (
     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
   </svg>
 );
+
+const CATEGORIES = ["तेल", "मसाला", "नमक", "चावल"];
 
 export default function App() {
   const [date, setDate] = useState(getTodayDate());
@@ -146,6 +179,131 @@ export default function App() {
     }
   };
 
+  const renderProductRows = (category: string, startIndex: number) => {
+    const catProducts = products.filter((p) => p.category === category);
+    return catProducts.map((product) => {
+      const index = products.findIndex((p) => p.id === product.id);
+      const amount = product.rate * product.qty;
+      const rateId = `rate-${product.id}`;
+      const qtyId = `qty-${product.id}`;
+      return (
+        <tr
+          key={product.id}
+          className={index % 2 === 0 ? "bg-card" : "bg-secondary/30"}
+          data-ocid={`bill.product.row.${index + 1}`}
+        >
+          <td className="px-3 py-2 text-center text-muted-foreground font-medium">
+            {startIndex + catProducts.indexOf(product) + 1}
+          </td>
+          <td className="px-3 py-2">
+            <span className="hindi-text font-semibold text-foreground">
+              {product.name}
+            </span>
+          </td>
+          <td className="px-3 py-2">
+            <label htmlFor={rateId} className="sr-only">
+              दर
+            </label>
+            <input
+              id={rateId}
+              type="number"
+              value={product.rate || ""}
+              onChange={(e) => updateRate(product.id, e.target.value)}
+              data-ocid={`bill.product.rate_input.${index + 1}`}
+              className="w-24 text-right h-9 rounded border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring ml-auto block"
+              min="0"
+              step="0.5"
+            />
+          </td>
+          <td className="px-3 py-2">
+            <label htmlFor={qtyId} className="sr-only">
+              मात्रा
+            </label>
+            <input
+              id={qtyId}
+              type="number"
+              value={product.qty || ""}
+              onChange={(e) => updateQty(product.id, e.target.value)}
+              data-ocid={`bill.product.qty_input.${index + 1}`}
+              className="w-20 text-right h-9 rounded border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring ml-auto block"
+              min="0"
+              placeholder="0"
+            />
+          </td>
+          <td className="px-3 py-2 text-right font-semibold text-foreground">
+            {amount > 0 ? formatCurrency(amount) : "—"}
+          </td>
+        </tr>
+      );
+    });
+  };
+
+  const renderMobileCards = (category: string, startIndex: number) => {
+    const catProducts = products.filter((p) => p.category === category);
+    return catProducts.map((product) => {
+      const index = products.findIndex((p) => p.id === product.id);
+      const amount = product.rate * product.qty;
+      const mRateId = `m-rate-${product.id}`;
+      const mQtyId = `m-qty-${product.id}`;
+      return (
+        <div
+          key={product.id}
+          className="rounded-md border border-border bg-card p-3"
+          data-ocid={`bill.product.row.${index + 1}`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="hindi-text font-bold text-base text-foreground">
+              {startIndex + catProducts.indexOf(product) + 1}. {product.name}
+            </span>
+            <span className="font-bold text-saffron-700">
+              {amount > 0 ? formatCurrency(amount) : "₹0"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor={mRateId}
+                className="hindi-text text-xs text-muted-foreground mb-1 block"
+              >
+                दर (₹)
+              </label>
+              <input
+                id={mRateId}
+                type="number"
+                value={product.rate || ""}
+                onChange={(e) => updateRate(product.id, e.target.value)}
+                data-ocid={`bill.product.rate_input.${index + 1}`}
+                className="w-full h-11 rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                min="0"
+                step="0.5"
+                inputMode="decimal"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor={mQtyId}
+                className="hindi-text text-xs text-muted-foreground mb-1 block"
+              >
+                मात्रा
+              </label>
+              <input
+                id={mQtyId}
+                type="number"
+                value={product.qty || ""}
+                onChange={(e) => updateQty(product.id, e.target.value)}
+                data-ocid={`bill.product.qty_input.${index + 1}`}
+                className="w-full h-11 rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                min="0"
+                placeholder="0"
+                inputMode="numeric"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    });
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Toaster />
@@ -222,7 +380,7 @@ export default function App() {
                       क्र.सं.
                     </th>
                     <th className="hindi-text px-3 py-2.5 text-left font-semibold">
-                      माप
+                      माल का नाम
                     </th>
                     <th className="hindi-text px-3 py-2.5 text-right font-semibold">
                       दर (₹)
@@ -236,63 +394,26 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map((product, index) => {
-                    const amount = product.rate * product.qty;
-                    const isEven = index % 2 === 0;
-                    const rateId = `rate-${product.id}`;
-                    const qtyId = `qty-${product.id}`;
+                  {CATEGORIES.map((cat) => {
+                    const _catProducts = products.filter(
+                      (p) => p.category === cat,
+                    );
+                    const startIndex = products.filter((p) => {
+                      const catIdx = CATEGORIES.indexOf(p.category);
+                      return catIdx < CATEGORIES.indexOf(cat);
+                    }).length;
                     return (
-                      <tr
-                        key={product.id}
-                        className={isEven ? "bg-card" : "bg-secondary/30"}
-                        data-ocid={`bill.product.row.${index + 1}`}
-                      >
-                        <td className="px-3 py-2 text-center text-muted-foreground font-medium">
-                          {index + 1}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="hindi-text font-semibold text-foreground">
-                            {product.name}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <label htmlFor={rateId} className="sr-only">
-                            दर
-                          </label>
-                          <input
-                            id={rateId}
-                            type="number"
-                            value={product.rate || ""}
-                            onChange={(e) =>
-                              updateRate(product.id, e.target.value)
-                            }
-                            data-ocid={`bill.product.rate_input.${index + 1}`}
-                            className="w-24 text-right h-9 rounded border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring ml-auto block"
-                            min="0"
-                            step="0.5"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <label htmlFor={qtyId} className="sr-only">
-                            मात्रा
-                          </label>
-                          <input
-                            id={qtyId}
-                            type="number"
-                            value={product.qty || ""}
-                            onChange={(e) =>
-                              updateQty(product.id, e.target.value)
-                            }
-                            data-ocid={`bill.product.qty_input.${index + 1}`}
-                            className="w-20 text-right h-9 rounded border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring ml-auto block"
-                            min="0"
-                            placeholder="0"
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold text-foreground">
-                          {amount > 0 ? formatCurrency(amount) : "—"}
-                        </td>
-                      </tr>
+                      <>
+                        <tr key={`cat-${cat}`} className="bg-saffron-50">
+                          <td
+                            colSpan={5}
+                            className="hindi-text px-3 py-1.5 text-sm font-bold text-saffron-800 border-t border-saffron-200"
+                          >
+                            ▸ {cat}
+                          </td>
+                        </tr>
+                        {renderProductRows(cat, startIndex)}
+                      </>
                     );
                   })}
                   <tr className="bg-saffron-50 border-t-2 border-saffron-700">
@@ -311,68 +432,21 @@ export default function App() {
             </div>
 
             {/* Mobile cards */}
-            <div className="sm:hidden space-y-3">
-              {products.map((product, index) => {
-                const amount = product.rate * product.qty;
-                const mRateId = `m-rate-${product.id}`;
-                const mQtyId = `m-qty-${product.id}`;
+            <div className="sm:hidden space-y-4">
+              {CATEGORIES.map((cat) => {
+                const startIndex = products.filter((p) => {
+                  const catIdx = CATEGORIES.indexOf(p.category);
+                  return catIdx < CATEGORIES.indexOf(cat);
+                }).length;
                 return (
-                  <div
-                    key={product.id}
-                    className="rounded-md border border-border bg-card p-3"
-                    data-ocid={`bill.product.row.${index + 1}`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="hindi-text font-bold text-base text-foreground">
-                        {index + 1}. {product.name}
-                      </span>
-                      <span className="font-bold text-saffron-700">
-                        {amount > 0 ? formatCurrency(amount) : "₹0"}
+                  <div key={`mcat-${cat}`}>
+                    <div className="bg-saffron-100 rounded-md px-3 py-1.5 mb-2">
+                      <span className="hindi-text text-sm font-bold text-saffron-800">
+                        ▸ {cat}
                       </span>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label
-                          htmlFor={mRateId}
-                          className="hindi-text text-xs text-muted-foreground mb-1 block"
-                        >
-                          दर (₹)
-                        </label>
-                        <input
-                          id={mRateId}
-                          type="number"
-                          value={product.rate || ""}
-                          onChange={(e) =>
-                            updateRate(product.id, e.target.value)
-                          }
-                          data-ocid={`bill.product.rate_input.${index + 1}`}
-                          className="w-full h-11 rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                          min="0"
-                          step="0.5"
-                          inputMode="decimal"
-                        />
-                      </div>
-                      <div>
-                        <label
-                          htmlFor={mQtyId}
-                          className="hindi-text text-xs text-muted-foreground mb-1 block"
-                        >
-                          मात्रा
-                        </label>
-                        <input
-                          id={mQtyId}
-                          type="number"
-                          value={product.qty || ""}
-                          onChange={(e) =>
-                            updateQty(product.id, e.target.value)
-                          }
-                          data-ocid={`bill.product.qty_input.${index + 1}`}
-                          className="w-full h-11 rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                          min="0"
-                          placeholder="0"
-                          inputMode="numeric"
-                        />
-                      </div>
+                    <div className="space-y-3">
+                      {renderMobileCards(cat, startIndex)}
                     </div>
                   </div>
                 );

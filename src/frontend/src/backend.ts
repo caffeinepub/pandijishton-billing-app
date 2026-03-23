@@ -95,6 +95,17 @@ export interface BillItem {
     quantity: bigint;
     amount: bigint;
 }
+export interface Shopkeeper {
+    id: bigint;
+    joinDate: string;
+    name: string;
+    shopName: string;
+    phone: string;
+}
+export interface StockItem {
+    qty: bigint;
+    productId: string;
+}
 export interface Bill {
     customerName: string;
     date: string;
@@ -102,12 +113,62 @@ export interface Bill {
     items: Array<BillItem>;
 }
 export interface backendInterface {
+    addShopkeeper(name: string, shopName: string, phone: string, joinDate: string): Promise<Shopkeeper>;
+    addStock(productId: string, qty: bigint): Promise<void>;
+    deductStock(productId: string, qty: bigint): Promise<void>;
     getAllBills(): Promise<Array<Bill>>;
+    getAllShopkeepers(): Promise<Array<Shopkeeper>>;
+    getAllStock(): Promise<Array<StockItem>>;
     getBill(id: bigint): Promise<Bill>;
+    getShopkeeperCount(): Promise<bigint>;
+    getStock(productId: string): Promise<bigint>;
     saveBill(id: bigint, bill: Bill): Promise<void>;
+    setStock(productId: string, qty: bigint): Promise<void>;
 }
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
+    async addShopkeeper(arg0: string, arg1: string, arg2: string, arg3: string): Promise<Shopkeeper> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.addShopkeeper(arg0, arg1, arg2, arg3);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.addShopkeeper(arg0, arg1, arg2, arg3);
+            return result;
+        }
+    }
+    async addStock(arg0: string, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.addStock(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.addStock(arg0, arg1);
+            return result;
+        }
+    }
+    async deductStock(arg0: string, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deductStock(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deductStock(arg0, arg1);
+            return result;
+        }
+    }
     async getAllBills(): Promise<Array<Bill>> {
         if (this.processError) {
             try {
@@ -119,6 +180,34 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.getAllBills();
+            return result;
+        }
+    }
+    async getAllShopkeepers(): Promise<Array<Shopkeeper>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllShopkeepers();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllShopkeepers();
+            return result;
+        }
+    }
+    async getAllStock(): Promise<Array<StockItem>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllStock();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllStock();
             return result;
         }
     }
@@ -136,6 +225,34 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getShopkeeperCount(): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getShopkeeperCount();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getShopkeeperCount();
+            return result;
+        }
+    }
+    async getStock(arg0: string): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getStock(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getStock(arg0);
+            return result;
+        }
+    }
     async saveBill(arg0: bigint, arg1: Bill): Promise<void> {
         if (this.processError) {
             try {
@@ -147,6 +264,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.saveBill(arg0, arg1);
+            return result;
+        }
+    }
+    async setStock(arg0: string, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setStock(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setStock(arg0, arg1);
             return result;
         }
     }

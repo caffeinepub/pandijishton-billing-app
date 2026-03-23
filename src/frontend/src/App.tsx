@@ -1,10 +1,31 @@
+import type { Shopkeeper } from "@/backend";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Toaster } from "@/components/ui/sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { useActor } from "@/hooks/useActor";
-import { Printer, Save } from "lucide-react";
-import { useState } from "react";
+import {
+  History,
+  Loader2,
+  Package,
+  Pencil,
+  Printer,
+  RefreshCw,
+  Save,
+  Store,
+  Trash2,
+  Users,
+} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 interface Product {
@@ -53,6 +74,8 @@ const INITIAL_PRODUCTS: Product[] = [
   { id: 16, name: "Satjug Pink Rice 1kg", category: "चावल", rate: 0, qty: 0 },
 ];
 
+const CATEGORIES = ["तेल", "मसाला", "नमक", "चावल"];
+
 function getTodayDate(): string {
   const now = new Date();
   const year = now.getFullYear();
@@ -89,7 +112,1355 @@ const WHATSAPP_ICON = (
   </svg>
 );
 
-const CATEGORIES = ["तेल", "मसाला", "नमक", "चावल"];
+// ─── Stock Manager Component ────────────────────────────────────────────────
+
+interface StockMap {
+  [productId: string]: number;
+}
+
+type StockAction = "add" | "set";
+
+interface StockDialogState {
+  open: boolean;
+  action: StockAction;
+  productId: string;
+  productName: string;
+  currentStock: number;
+}
+
+interface CostDialogState {
+  open: boolean;
+  productId: string;
+  productName: string;
+  currentCost: number;
+}
+
+function getStockStatus(qty: number): {
+  label: string;
+  color: string;
+  bg: string;
+  dot: string;
+} {
+  if (qty === 0)
+    return {
+      label: "स्टॉक खत्म",
+      color: "text-red-700",
+      bg: "bg-red-100 border-red-300",
+      dot: "bg-red-500",
+    };
+  if (qty <= 10)
+    return {
+      label: "कम स्टॉक",
+      color: "text-yellow-700",
+      bg: "bg-yellow-100 border-yellow-300",
+      dot: "bg-yellow-500",
+    };
+  return {
+    label: "उपलब्ध",
+    color: "text-green-700",
+    bg: "bg-green-100 border-green-300",
+    dot: "bg-green-500",
+  };
+}
+
+interface StockManagerProps {
+  actor: any;
+}
+
+function StockManager({ actor }: StockManagerProps) {
+  const [stockMap, setStockMap] = useState<StockMap>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [dialog, setDialog] = useState<StockDialogState>({
+    open: false,
+    action: "add",
+    productId: "",
+    productName: "",
+    currentStock: 0,
+  });
+  const [inputQty, setInputQty] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [costMap, setCostMap] = useState<Record<string, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("stock_costs") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [costDialog, setCostDialog] = useState<CostDialogState>({
+    open: false,
+    productId: "",
+    productName: "",
+    currentCost: 0,
+  });
+  const [costInput, setCostInput] = useState("");
+
+  const saveCostMap = (newMap: Record<string, number>) => {
+    setCostMap(newMap);
+    localStorage.setItem("stock_costs", JSON.stringify(newMap));
+  };
+
+  const openCostDialog = (product: Product) => {
+    const pid = String(product.id);
+    setCostDialog({
+      open: true,
+      productId: pid,
+      productName: product.name,
+      currentCost: costMap[pid] ?? 0,
+    });
+    setCostInput(String(costMap[pid] ?? 0));
+  };
+
+  const handleCostSave = () => {
+    const val = Number.parseFloat(costInput);
+    if (Number.isNaN(val) || val < 0) {
+      toast.error("सही लागत डालें");
+      return;
+    }
+    const newMap = { ...costMap, [costDialog.productId]: val };
+    saveCostMap(newMap);
+    toast.success(`${costDialog.productName} — लागत ₹${val} सेट`);
+    setCostDialog((prev) => ({ ...prev, open: false }));
+  };
+
+  const loadStock = useCallback(async () => {
+    if (!actor) return;
+    setIsLoading(true);
+    try {
+      const allStock = await actor.getAllStock();
+      const map: StockMap = {};
+      for (const item of allStock) {
+        map[item.productId] = Number(item.qty);
+      }
+      setStockMap(map);
+    } catch (err) {
+      toast.error("स्टॉक लोड करने में त्रुटि");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [actor]);
+
+  useEffect(() => {
+    loadStock();
+  }, [loadStock]);
+
+  const openDialog = (
+    action: StockAction,
+    product: Product,
+    currentStock: number,
+  ) => {
+    setDialog({
+      open: true,
+      action,
+      productId: String(product.id),
+      productName: product.name,
+      currentStock,
+    });
+    setInputQty("");
+  };
+
+  const handleDialogSave = async () => {
+    const qty = Number.parseInt(inputQty, 10);
+    if (Number.isNaN(qty) || qty < 0) {
+      toast.error("सही मात्रा डालें");
+      return;
+    }
+    if (!actor) return;
+    setIsSaving(true);
+    try {
+      if (dialog.action === "add") {
+        await actor.addStock(dialog.productId, BigInt(qty));
+        toast.success(`${dialog.productName} — ${qty} जोड़ा गया`);
+      } else {
+        await actor.setStock(dialog.productId, BigInt(qty));
+        toast.success(`${dialog.productName} — स्टॉक ${qty} सेट किया`);
+      }
+      setDialog((prev) => ({ ...prev, open: false }));
+      await loadStock();
+    } catch (err) {
+      toast.error("स्टॉक अपडेट में त्रुटि");
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleResetStock = async (product: Product) => {
+    if (!actor) return;
+    if (
+      !window.confirm(`क्या आप "${product.name}" का स्टॉक 0 पर रीसेट करना चाहते हैं?`)
+    )
+      return;
+    try {
+      await actor.resetStock(String(product.id));
+      toast.success(`${product.name} — स्टॉक रीसेट किया गया`);
+      await loadStock();
+    } catch (err) {
+      toast.error("स्टॉक रीसेट में त्रुटि");
+      console.error(err);
+    }
+  };
+
+  const totalProducts = INITIAL_PRODUCTS.length;
+  const outOfStock = INITIAL_PRODUCTS.filter(
+    (p) => (stockMap[String(p.id)] ?? 0) === 0,
+  ).length;
+  const lowStock = INITIAL_PRODUCTS.filter((p) => {
+    const q = stockMap[String(p.id)] ?? 0;
+    return q > 0 && q <= 10;
+  }).length;
+
+  return (
+    <div className="px-4 py-5 sm:px-6">
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <div
+          className="rounded-lg border border-border bg-card p-3 text-center"
+          data-ocid="stock.total_card"
+        >
+          <div className="text-2xl font-bold text-foreground">
+            {totalProducts}
+          </div>
+          <div className="hindi-text text-xs text-muted-foreground mt-1">
+            कुल माल
+          </div>
+        </div>
+        <div
+          className="rounded-lg border border-red-200 bg-red-50 p-3 text-center"
+          data-ocid="stock.out_of_stock_card"
+        >
+          <div className="text-2xl font-bold text-red-600">{outOfStock}</div>
+          <div className="hindi-text text-xs text-red-600 mt-1">खत्म स्टॉक</div>
+        </div>
+        <div
+          className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-center"
+          data-ocid="stock.low_stock_card"
+        >
+          <div className="text-2xl font-bold text-yellow-600">{lowStock}</div>
+          <div className="hindi-text text-xs text-yellow-600 mt-1">कम स्टॉक</div>
+        </div>
+      </div>
+
+      {/* Refresh button */}
+      <div className="flex justify-end mb-4">
+        <Button
+          onClick={loadStock}
+          disabled={isLoading}
+          variant="outline"
+          className="border-saffron-500 text-saffron-700 hover:bg-saffron-50 gap-2"
+          data-ocid="stock.refresh_button"
+        >
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          <span className="hindi-text">स्टॉक रिफ्रेश करें</span>
+        </Button>
+      </div>
+
+      {isLoading && (
+        <div
+          className="flex items-center justify-center py-12"
+          data-ocid="stock.loading_state"
+        >
+          <Loader2 className="h-8 w-8 animate-spin text-saffron-600" />
+          <span className="hindi-text ml-3 text-muted-foreground">
+            स्टॉक लोड हो रहा है...
+          </span>
+        </div>
+      )}
+
+      {!isLoading && (
+        <>
+          {/* Desktop table */}
+          <div className="hidden sm:block">
+            <table className="w-full text-sm border-collapse rounded-lg overflow-hidden">
+              <thead>
+                <tr className="bg-saffron-700 text-white">
+                  <th className="hindi-text px-4 py-3 text-left font-semibold">
+                    माल का नाम
+                  </th>
+                  <th className="hindi-text px-4 py-3 text-center font-semibold">
+                    स्टॉक मात्रा
+                  </th>
+                  <th className="hindi-text px-4 py-3 text-center font-semibold">
+                    लागत (₹)
+                  </th>
+                  <th className="hindi-text px-4 py-3 text-center font-semibold">
+                    स्थिति
+                  </th>
+                  <th className="hindi-text px-4 py-3 text-center font-semibold">
+                    कार्रवाई
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {CATEGORIES.map((cat) => {
+                  const catProducts = INITIAL_PRODUCTS.filter(
+                    (p) => p.category === cat,
+                  );
+                  return (
+                    <>
+                      <tr key={`cat-${cat}`} className="bg-saffron-50">
+                        <td
+                          colSpan={5}
+                          className="hindi-text px-4 py-2 text-sm font-bold text-saffron-800 border-t border-saffron-200"
+                        >
+                          ▸ {cat}
+                        </td>
+                      </tr>
+                      {catProducts.map((product, idx) => {
+                        const stockQty = stockMap[String(product.id)] ?? 0;
+                        const status = getStockStatus(stockQty);
+                        const globalIdx = INITIAL_PRODUCTS.findIndex(
+                          (p) => p.id === product.id,
+                        );
+                        return (
+                          <tr
+                            key={product.id}
+                            className={
+                              idx % 2 === 0 ? "bg-card" : "bg-secondary/30"
+                            }
+                            data-ocid={`stock.item.${globalIdx + 1}`}
+                          >
+                            <td className="px-4 py-3">
+                              <span className="hindi-text font-semibold text-foreground">
+                                {product.name}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className="font-bold text-lg text-foreground">
+                                {stockQty}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <span className="font-semibold text-foreground">
+                                  ₹{costMap[String(product.id)] ?? 0}
+                                </span>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6 text-muted-foreground hover:text-saffron-700"
+                                  onClick={() => openCostDialog(product)}
+                                  data-ocid={`stock.cost_edit_button.${globalIdx + 1}`}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${status.bg} ${status.color}`}
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${status.dot}`}
+                                />
+                                {status.label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex gap-2 justify-center">
+                                <Button
+                                  size="sm"
+                                  onClick={() =>
+                                    openDialog("add", product, stockQty)
+                                  }
+                                  className="h-8 bg-saffron-600 hover:bg-saffron-700 text-white text-xs hindi-text"
+                                  data-ocid={`stock.add_button.${globalIdx + 1}`}
+                                >
+                                  माल जोड़ें
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    openDialog("set", product, stockQty)
+                                  }
+                                  className="h-8 border-saffron-400 text-saffron-700 hover:bg-saffron-50 text-xs hindi-text"
+                                  data-ocid={`stock.set_button.${globalIdx + 1}`}
+                                >
+                                  सेट करें
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleResetStock(product)}
+                                  className="h-8 border-red-400 text-red-600 hover:bg-red-50 text-xs hindi-text"
+                                  data-ocid={`stock.delete_button.${globalIdx + 1}`}
+                                >
+                                  <Trash2 className="h-3 w-3 mr-1" />
+                                  रीसेट
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="sm:hidden space-y-4">
+            {CATEGORIES.map((cat) => {
+              const catProducts = INITIAL_PRODUCTS.filter(
+                (p) => p.category === cat,
+              );
+              return (
+                <div key={`mcat-stock-${cat}`}>
+                  <div className="bg-saffron-100 rounded-md px-3 py-1.5 mb-2">
+                    <span className="hindi-text text-sm font-bold text-saffron-800">
+                      ▸ {cat}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {catProducts.map((product) => {
+                      const stockQty = stockMap[String(product.id)] ?? 0;
+                      const status = getStockStatus(stockQty);
+                      const globalIdx = INITIAL_PRODUCTS.findIndex(
+                        (p) => p.id === product.id,
+                      );
+                      return (
+                        <div
+                          key={product.id}
+                          className="rounded-lg border border-border bg-card p-3"
+                          data-ocid={`stock.item.${globalIdx + 1}`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="hindi-text font-bold text-sm text-foreground">
+                              {product.name}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${status.bg} ${status.color}`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${status.dot}`}
+                              />
+                              {status.label}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div>
+                                <span className="hindi-text text-xs text-muted-foreground">
+                                  स्टॉक:{" "}
+                                </span>
+                                <span className="font-bold text-xl text-foreground">
+                                  {stockQty}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="hindi-text text-xs text-muted-foreground">
+                                  लागत:
+                                </span>
+                                <span className="font-semibold text-sm text-foreground">
+                                  ₹{costMap[String(product.id)] ?? 0}
+                                </span>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6 text-muted-foreground hover:text-saffron-700"
+                                  onClick={() => openCostDialog(product)}
+                                  data-ocid={`stock.cost_edit_button.${globalIdx + 1}`}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() =>
+                                  openDialog("add", product, stockQty)
+                                }
+                                className="h-9 bg-saffron-600 hover:bg-saffron-700 text-white text-xs hindi-text px-3"
+                                data-ocid={`stock.add_button.${globalIdx + 1}`}
+                              >
+                                माल जोड़ें
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  openDialog("set", product, stockQty)
+                                }
+                                className="h-9 border-saffron-400 text-saffron-700 hover:bg-saffron-50 text-xs hindi-text px-3"
+                                data-ocid={`stock.set_button.${globalIdx + 1}`}
+                              >
+                                सेट करें
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Add/Set Stock Dialog */}
+      <Dialog
+        open={dialog.open}
+        onOpenChange={(open) => setDialog((prev) => ({ ...prev, open }))}
+      >
+        <DialogContent className="max-w-sm" data-ocid="stock.dialog">
+          <DialogHeader>
+            <DialogTitle className="hindi-text text-saffron-800">
+              {dialog.action === "add" ? "माल जोड़ें" : "स्टॉक सेट करें"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="bg-saffron-50 border border-saffron-200 rounded-md px-3 py-2">
+              <p className="hindi-text text-sm font-semibold text-saffron-800">
+                {dialog.productName}
+              </p>
+              <p className="hindi-text text-xs text-muted-foreground mt-0.5">
+                वर्तमान स्टॉक:{" "}
+                <span className="font-bold text-foreground">
+                  {dialog.currentStock}
+                </span>
+              </p>
+            </div>
+            <div>
+              <label
+                htmlFor="stock-qty-input"
+                className="hindi-text text-sm font-semibold text-foreground block mb-1.5"
+              >
+                {dialog.action === "add"
+                  ? "कितना माल जोड़ना है?"
+                  : "नई स्टॉक मात्रा"}
+              </label>
+              <Input
+                type="number"
+                min="0"
+                inputMode="numeric"
+                placeholder="मात्रा डालें..."
+                value={inputQty}
+                onChange={(e) => setInputQty(e.target.value)}
+                className="h-12 text-lg text-center"
+                id="stock-qty-input"
+                data-ocid="stock.input"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleDialogSave();
+                }}
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button
+                onClick={() => setDialog((prev) => ({ ...prev, open: false }))}
+                variant="outline"
+                className="flex-1 hindi-text"
+                data-ocid="stock.cancel_button"
+              >
+                रद्द करें
+              </Button>
+              <Button
+                onClick={handleDialogSave}
+                disabled={isSaving || !inputQty}
+                className="flex-1 bg-saffron-700 hover:bg-saffron-800 text-white hindi-text"
+                data-ocid="stock.confirm_button"
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {dialog.action === "add" ? "जोड़ें" : "सेट करें"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cost Dialog */}
+      <Dialog
+        open={costDialog.open}
+        onOpenChange={(open) => setCostDialog((prev) => ({ ...prev, open }))}
+      >
+        <DialogContent className="max-w-sm" data-ocid="stock.cost_dialog">
+          <DialogHeader>
+            <DialogTitle className="hindi-text text-saffron-800">
+              लागत सेट करें
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="bg-saffron-50 border border-saffron-200 rounded-md px-3 py-2">
+              <p className="hindi-text text-sm font-semibold text-saffron-800">
+                {costDialog.productName}
+              </p>
+              <p className="hindi-text text-xs text-muted-foreground mt-0.5">
+                वर्तमान लागत:{" "}
+                <span className="font-bold text-foreground">
+                  ₹{costDialog.currentCost}
+                </span>
+              </p>
+            </div>
+            <div>
+              <label
+                htmlFor="cost-input"
+                className="hindi-text text-sm font-semibold text-foreground block mb-1.5"
+              >
+                नई लागत राशि (₹)
+              </label>
+              <Input
+                type="number"
+                min="0"
+                inputMode="decimal"
+                placeholder="लागत डालें..."
+                value={costInput}
+                onChange={(e) => setCostInput(e.target.value)}
+                className="h-12 text-lg text-center"
+                id="cost-input"
+                data-ocid="stock.cost_input"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCostSave();
+                }}
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button
+                onClick={() =>
+                  setCostDialog((prev) => ({ ...prev, open: false }))
+                }
+                variant="outline"
+                className="flex-1 hindi-text"
+                data-ocid="stock.cost_cancel_button"
+              >
+                रद्द करें
+              </Button>
+              <Button
+                onClick={handleCostSave}
+                disabled={!costInput}
+                className="flex-1 bg-saffron-700 hover:bg-saffron-800 text-white hindi-text"
+                data-ocid="stock.cost_confirm_button"
+              >
+                सेट करें
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── Shopkeeper Manager Component ───────────────────────────────────────────
+
+interface ShopkeeperManagerProps {
+  actor: any;
+}
+
+function ShopkeeperManager({ actor }: ShopkeeperManagerProps) {
+  const [shopkeepers, setShopkeepers] = useState<Shopkeeper[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [shopName, setShopName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [waDialog, setWaDialog] = useState<{
+    type: "hisaab" | "message";
+    sk: Shopkeeper;
+  } | null>(null);
+  const [waText, setWaText] = useState("");
+
+  const loadShopkeepers = useCallback(async () => {
+    if (!actor) return;
+    setIsLoading(true);
+    try {
+      const list = await actor.getAllShopkeepers();
+      setShopkeepers(list);
+    } catch (err) {
+      toast.error("दुकानदार सूची लोड नहीं हुई");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [actor]);
+
+  useEffect(() => {
+    loadShopkeepers();
+  }, [loadShopkeepers]);
+
+  const handleAdd = async () => {
+    if (!name.trim()) {
+      toast.error("दुकानदार का नाम डालें");
+      return;
+    }
+    if (!shopName.trim()) {
+      toast.error("दुकान का नाम डालें");
+      return;
+    }
+    if (!phone.trim()) {
+      toast.error("फोन नंबर डालें");
+      return;
+    }
+    if (!actor) return;
+
+    setIsAdding(true);
+    try {
+      const today = getTodayDate();
+      await actor.addShopkeeper(
+        name.trim(),
+        shopName.trim(),
+        phone.trim(),
+        today,
+      );
+      toast.success(`${name.trim()} सफलतापूर्वक जोड़ा गया!`);
+      setName("");
+      setShopName("");
+      setPhone("");
+      await loadShopkeepers();
+    } catch (err) {
+      toast.error("दुकानदार जोड़ने में त्रुटि हुई");
+      console.error(err);
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  const sendWhatsApp = () => {
+    if (!waDialog) return;
+    const phone = waDialog.sk.phone.replace(/\D/g, "");
+    const msg = encodeURIComponent(waText);
+    window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");
+    setWaDialog(null);
+    setWaText("");
+  };
+
+  const openWaDialog = (type: "hisaab" | "message", sk: Shopkeeper) => {
+    if (type === "hisaab") {
+      setWaText(
+        `नमस्ते ${sk.name} जी,\nआपकी दुकान ${sk.shopName} का हिसाब:\n\n[यहाँ हिसाब लिखें]\n\nधन्यवाद\nपंडित जी स्टोर`,
+      );
+    } else {
+      setWaText("");
+    }
+    setWaDialog({ type, sk });
+  };
+
+  const handleDeleteShopkeeper = async (sk: Shopkeeper) => {
+    if (!actor) return;
+    if (!window.confirm(`क्या आप ${sk.name} को हटाना चाहते हैं?`)) return;
+    try {
+      await actor.deleteShopkeeper(BigInt(sk.id));
+      toast.success(`${sk.name} को हटा दिया गया`);
+      await loadShopkeepers();
+    } catch (err) {
+      toast.error("दुकानदार हटाने में त्रुटि");
+      console.error(err);
+    }
+  };
+
+  const count = shopkeepers.length;
+
+  return (
+    <div className="px-4 py-5 sm:px-6">
+      {/* Summary Card */}
+      <div
+        className="mb-6 rounded-xl bg-gradient-to-br from-saffron-700 to-saffron-800 text-white px-6 py-5 flex items-center gap-5 shadow-md"
+        data-ocid="shopkeeper.summary_card"
+      >
+        <div className="bg-white/20 rounded-full p-3">
+          <Users className="h-8 w-8 text-white" />
+        </div>
+        <div>
+          <div className="text-4xl font-bold leading-none">{count}</div>
+          <div className="hindi-text text-lg font-semibold mt-1 text-white/90">
+            दुकानदार जुड़े हैं
+          </div>
+          <div className="hindi-text text-xs text-white/65 mt-0.5">
+            अब तक कुल पंजीकृत दुकानदार
+          </div>
+        </div>
+      </div>
+
+      {/* Add Shopkeeper Form */}
+      <div className="rounded-lg border border-saffron-200 bg-saffron-50 p-4 mb-6">
+        <h2 className="hindi-text text-base font-bold text-saffron-800 mb-4 flex items-center gap-2">
+          <span className="inline-block w-1 h-5 bg-saffron-600 rounded-full" />
+          नया दुकानदार जोड़ें
+        </h2>
+        <div className="space-y-3">
+          <div>
+            <label
+              htmlFor="sk-name"
+              className="hindi-text text-sm font-semibold text-foreground block mb-1"
+            >
+              दुकानदार का नाम *
+            </label>
+            <Input
+              id="sk-name"
+              type="text"
+              placeholder="जैसे: राजेश कुमार"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="h-11 hindi-text"
+              data-ocid="shopkeeper.name_input"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="sk-shop"
+              className="hindi-text text-sm font-semibold text-foreground block mb-1"
+            >
+              दुकान का नाम *
+            </label>
+            <Input
+              id="sk-shop"
+              type="text"
+              placeholder="जैसे: राजेश जनरल स्टोर"
+              value={shopName}
+              onChange={(e) => setShopName(e.target.value)}
+              className="h-11 hindi-text"
+              data-ocid="shopkeeper.shop_name_input"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="sk-phone"
+              className="hindi-text text-sm font-semibold text-foreground block mb-1"
+            >
+              फोन नंबर *
+            </label>
+            <Input
+              id="sk-phone"
+              type="tel"
+              inputMode="numeric"
+              placeholder="जैसे: 9876543210"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="h-11"
+              data-ocid="shopkeeper.phone_input"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAdd();
+              }}
+            />
+          </div>
+          <Button
+            onClick={handleAdd}
+            disabled={
+              isAdding || !name.trim() || !shopName.trim() || !phone.trim()
+            }
+            className="w-full h-12 bg-saffron-700 hover:bg-saffron-800 text-white font-bold text-base hindi-text gap-2 mt-1"
+            data-ocid="shopkeeper.add_button"
+          >
+            {isAdding ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Store className="h-5 w-5" />
+            )}
+            दुकानदार जोड़ें
+          </Button>
+        </div>
+      </div>
+
+      {/* Shopkeeper List */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="hindi-text text-base font-bold text-foreground flex items-center gap-2">
+            <span className="inline-block w-1 h-5 bg-saffron-600 rounded-full" />
+            दुकानदार सूची
+          </h2>
+          <Button
+            onClick={loadShopkeepers}
+            disabled={isLoading}
+            variant="outline"
+            size="sm"
+            className="border-saffron-400 text-saffron-700 hover:bg-saffron-50 gap-1.5 h-8"
+            data-ocid="shopkeeper.refresh_button"
+          >
+            {isLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            <span className="hindi-text text-xs">रिफ्रेश</span>
+          </Button>
+        </div>
+
+        {isLoading && (
+          <div
+            className="flex items-center justify-center py-12"
+            data-ocid="shopkeeper.loading_state"
+          >
+            <Loader2 className="h-8 w-8 animate-spin text-saffron-600" />
+            <span className="hindi-text ml-3 text-muted-foreground">
+              लोड हो रहा है...
+            </span>
+          </div>
+        )}
+
+        {!isLoading && count === 0 && (
+          <div
+            className="text-center py-12 border-2 border-dashed border-saffron-200 rounded-lg"
+            data-ocid="shopkeeper.empty_state"
+          >
+            <Users className="h-12 w-12 text-saffron-300 mx-auto mb-3" />
+            <p className="hindi-text text-muted-foreground font-medium">
+              अभी कोई दुकानदार नहीं जुड़ा है
+            </p>
+            <p className="hindi-text text-sm text-muted-foreground mt-1">
+              ऊपर फॉर्म भरकर पहला दुकानदार जोड़ें
+            </p>
+          </div>
+        )}
+
+        {!isLoading && count > 0 && (
+          <>
+            {/* Desktop table */}
+            <div className="hidden sm:block">
+              <table className="w-full text-sm border-collapse rounded-lg overflow-hidden">
+                <thead>
+                  <tr className="bg-saffron-700 text-white">
+                    <th className="hindi-text px-4 py-3 text-center font-semibold w-12">
+                      क्र.
+                    </th>
+                    <th className="hindi-text px-4 py-3 text-left font-semibold">
+                      दुकानदार का नाम
+                    </th>
+                    <th className="hindi-text px-4 py-3 text-left font-semibold">
+                      दुकान का नाम
+                    </th>
+                    <th className="hindi-text px-4 py-3 text-center font-semibold">
+                      फोन नंबर
+                    </th>
+                    <th className="hindi-text px-4 py-3 text-center font-semibold">
+                      जुड़ने की तारीख
+                    </th>
+                    <th className="hindi-text px-4 py-3 text-center font-semibold">
+                      WhatsApp
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shopkeepers.map((sk, idx) => (
+                    <tr
+                      key={String(sk.id)}
+                      className={idx % 2 === 0 ? "bg-card" : "bg-secondary/30"}
+                      data-ocid={`shopkeeper.item.${idx + 1}`}
+                    >
+                      <td className="px-4 py-3 text-center text-muted-foreground font-medium">
+                        {idx + 1}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="hindi-text font-semibold text-foreground">
+                          {sk.name}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="hindi-text text-foreground">
+                          {sk.shopName}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <a
+                          href={`tel:${sk.phone}`}
+                          className="text-saffron-700 font-semibold hover:underline"
+                        >
+                          {sk.phone}
+                        </a>
+                      </td>
+                      <td className="px-4 py-3 text-center text-muted-foreground">
+                        {formatDisplayDate(sk.joinDate)}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex gap-1.5 justify-center">
+                          <button
+                            type="button"
+                            onClick={() => openWaDialog("hisaab", sk)}
+                            className="text-xs bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded font-medium hindi-text"
+                            data-ocid={`shopkeeper.hisaab_button.${idx + 1}`}
+                            title="हिसाब भेजें"
+                          >
+                            💰 हिसाब
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openWaDialog("message", sk)}
+                            className="text-xs bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded font-medium hindi-text"
+                            data-ocid={`shopkeeper.message_button.${idx + 1}`}
+                            title="संदेश भेजें"
+                          >
+                            💬 संदेश
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteShopkeeper(sk)}
+                            className="text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded font-medium"
+                            data-ocid={`shopkeeper.delete_button.${idx + 1}`}
+                            title="हटाएं"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="sm:hidden space-y-3">
+              {shopkeepers.map((sk, idx) => (
+                <div
+                  key={String(sk.id)}
+                  className="rounded-lg border border-border bg-card p-4"
+                  data-ocid={`shopkeeper.item.${idx + 1}`}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <div className="hindi-text font-bold text-base text-foreground">
+                        {sk.name}
+                      </div>
+                      <div className="hindi-text text-sm text-muted-foreground mt-0.5">
+                        {sk.shopName}
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground bg-secondary px-2 py-1 rounded-full">
+                      #{idx + 1}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-border">
+                    <a
+                      href={`tel:${sk.phone}`}
+                      className="text-saffron-700 font-semibold text-sm hover:underline"
+                    >
+                      📞 {sk.phone}
+                    </a>
+                    <span className="hindi-text text-xs text-muted-foreground">
+                      {formatDisplayDate(sk.joinDate)}
+                    </span>
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      type="button"
+                      onClick={() => openWaDialog("hisaab", sk)}
+                      className="flex-1 text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded font-medium hindi-text"
+                      data-ocid={`shopkeeper.hisaab_button.${idx + 1}`}
+                    >
+                      💰 हिसाब भेजें
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openWaDialog("message", sk)}
+                      className="flex-1 text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded font-medium hindi-text"
+                      data-ocid={`shopkeeper.message_button.${idx + 1}`}
+                    >
+                      💬 संदेश भेजें
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteShopkeeper(sk)}
+                      className="text-sm bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded font-medium flex items-center gap-1"
+                      data-ocid={`shopkeeper.delete_button.${idx + 1}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* WhatsApp Dialog */}
+      <Dialog
+        open={!!waDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setWaDialog(null);
+            setWaText("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="hindi-text text-base flex items-center gap-2">
+              <span className="text-green-600">📲</span>
+              {waDialog?.type === "hisaab" ? "हिसाब भेजें" : "संदेश भेजें"} — WhatsApp
+            </DialogTitle>
+            {waDialog && (
+              <p className="hindi-text text-sm text-muted-foreground">
+                {waDialog.sk.name} · {waDialog.sk.shopName} · 📞{" "}
+                {waDialog.sk.phone}
+              </p>
+            )}
+          </DialogHeader>
+          <div className="mt-2">
+            <Textarea
+              value={waText}
+              onChange={(e) => setWaText(e.target.value)}
+              placeholder="यहाँ संदेश लिखें..."
+              className="hindi-text min-h-[140px] text-sm"
+              data-ocid="shopkeeper.wa_textarea"
+            />
+          </div>
+          <DialogFooter className="flex gap-2 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setWaDialog(null);
+                setWaText("");
+              }}
+              className="hindi-text"
+              data-ocid="shopkeeper.wa_cancel_button"
+            >
+              रद्द करें
+            </Button>
+            <Button
+              onClick={sendWhatsApp}
+              disabled={!waText.trim()}
+              className="bg-green-600 hover:bg-green-700 text-white hindi-text gap-2"
+              data-ocid="shopkeeper.wa_send_button"
+            >
+              <span>📲</span> WhatsApp पर भेजें
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+
+interface BillHistoryProps {
+  actor: any;
+}
+
+interface BillRecord {
+  customerName: string;
+  date: string;
+  totalAmount: bigint;
+  items: Array<{
+    productName: string;
+    rate: bigint;
+    quantity: bigint;
+    amount: bigint;
+  }>;
+}
+
+function BillHistory({ actor }: BillHistoryProps) {
+  const [bills, setBills] = useState<BillRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
+  const loadBills = useCallback(async () => {
+    if (!actor) return;
+    setIsLoading(true);
+    try {
+      const result = await actor.getAllBills();
+      const sorted = [...result].sort((a: BillRecord, b: BillRecord) =>
+        b.date.localeCompare(a.date),
+      );
+      setBills(sorted);
+    } catch {
+      toast.error("बिल हिस्ट्री लोड नहीं हुई");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [actor]);
+
+  useEffect(() => {
+    loadBills();
+  }, [loadBills]);
+
+  return (
+    <div className="px-4 py-5 sm:px-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="hindi-text text-lg font-bold text-foreground flex items-center gap-2">
+            <History className="h-5 w-5 text-saffron-600" />
+            बिल हिस्ट्री
+          </h2>
+          <p className="hindi-text text-sm text-muted-foreground mt-0.5">
+            कुल{" "}
+            <span className="font-bold text-saffron-700">{bills.length}</span>{" "}
+            बिल सेव हैं
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={loadBills}
+          disabled={isLoading}
+          data-ocid="history.refresh_button"
+          className="hindi-text border-saffron-300 text-saffron-700 hover:bg-saffron-50"
+        >
+          <RefreshCw
+            className={`h-4 w-4 mr-1.5 ${isLoading ? "animate-spin" : ""}`}
+          />
+          ताज़ा करें
+        </Button>
+      </div>
+
+      {/* Loading */}
+      {isLoading && (
+        <div
+          className="flex justify-center items-center py-10"
+          data-ocid="history.loading_state"
+        >
+          <Loader2 className="h-6 w-6 animate-spin text-saffron-600" />
+          <span className="hindi-text ml-3 text-muted-foreground">
+            लोड हो रहा है...
+          </span>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!isLoading && bills.length === 0 && (
+        <div
+          className="text-center py-14 bg-saffron-50 rounded-xl border border-saffron-200"
+          data-ocid="history.empty_state"
+        >
+          <History className="h-10 w-10 text-saffron-300 mx-auto mb-3" />
+          <p className="hindi-text text-base font-semibold text-saffron-700">
+            कोई बिल सेव नहीं है
+          </p>
+          <p className="hindi-text text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
+            पहले बिल बनाएं और "बिल सेव करें" बटन दबाएं।
+          </p>
+        </div>
+      )}
+
+      {/* Bill list */}
+      {!isLoading && bills.length > 0 && (
+        <div className="space-y-3" data-ocid="history.list">
+          {bills.map((bill, idx) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: bills have no stable ID
+            <div
+              key={`bill-${bill.date}-${idx}`}
+              className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"
+              data-ocid={`history.item.${idx + 1}`}
+            >
+              {/* Card header */}
+              <button
+                type="button"
+                className="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-saffron-50 transition-colors"
+                onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
+                data-ocid={`history.toggle.${idx + 1}`}
+              >
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <span className="hindi-text font-bold text-foreground text-base truncate">
+                    {bill.customerName || "—"}
+                  </span>
+                  <span className="hindi-text text-xs text-muted-foreground">
+                    📅 {formatDisplayDate(bill.date)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 ml-3 shrink-0">
+                  <span className="hindi-text font-bold text-saffron-700 text-base">
+                    {formatCurrency(Number(bill.totalAmount))}
+                  </span>
+                  <span className="text-muted-foreground text-lg">
+                    {expandedIdx === idx ? "▲" : "▼"}
+                  </span>
+                </div>
+              </button>
+
+              {/* Expanded items */}
+              {expandedIdx === idx && (
+                <div className="border-t border-border bg-secondary/30 px-4 py-3">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-muted-foreground">
+                        <th className="hindi-text text-left py-1 font-semibold">
+                          माल
+                        </th>
+                        <th className="hindi-text text-right py-1 font-semibold">
+                          दर
+                        </th>
+                        <th className="hindi-text text-right py-1 font-semibold">
+                          मात्रा
+                        </th>
+                        <th className="hindi-text text-right py-1 font-semibold">
+                          राशि
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bill.items.map((item, iIdx) => (
+                        <tr
+                          key={`${item.productName}-${iIdx}`}
+                          className="border-t border-border/50"
+                        >
+                          <td className="hindi-text py-1.5 text-foreground">
+                            {item.productName}
+                          </td>
+                          <td className="hindi-text py-1.5 text-right text-muted-foreground">
+                            {formatCurrency(Number(item.rate))}
+                          </td>
+                          <td className="hindi-text py-1.5 text-right text-muted-foreground">
+                            {Number(item.quantity)}
+                          </td>
+                          <td className="hindi-text py-1.5 text-right font-semibold text-saffron-700">
+                            {formatCurrency(Number(item.amount))}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-saffron-300">
+                        <td
+                          colSpan={3}
+                          className="hindi-text pt-2 text-right font-bold text-saffron-800"
+                        >
+                          कुल:
+                        </td>
+                        <td className="hindi-text pt-2 text-right font-bold text-saffron-800">
+                          {formatCurrency(Number(bill.totalAmount))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        let msg = "🧾 *पंडित जी स्टोर*\n";
+                        msg += "सरसों तेल एवं माप तेल\n";
+                        msg += "━━━━━━━━━━━━━━━\n";
+                        if (bill.customerName?.trim()) {
+                          msg += `👤 फर्म: *${bill.customerName.trim()}*\n`;
+                        }
+                        msg += `📅 दिनांक: ${formatDisplayDate(bill.date)}\n`;
+                        msg += "━━━━━━━━━━━━━━━\n";
+                        bill.items.forEach((item, i) => {
+                          msg += `${i + 1}. ${item.productName} — दर: ₹${Number(item.rate)} × मात्रा: ${Number(item.quantity)} = *₹${Number(item.amount)}*\n`;
+                        });
+                        msg += "━━━━━━━━━━━━━━━\n";
+                        msg += `💰 *कुल राशि: ${formatCurrency(Number(bill.totalAmount))}*\n`;
+                        msg += "\n📌 नियम: 7 दिन उधारी | इससे अधिक पर 2% ब्याज";
+                        window.open(
+                          `https://wa.me/?text=${encodeURIComponent(msg)}`,
+                          "_blank",
+                        );
+                      }}
+                      data-ocid="bill_history.whatsapp_button"
+                      className="hindi-text flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-green-700 active:scale-95 transition-all"
+                    >
+                      <span>📲</span> WhatsApp पर भेजें
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function App() {
   const [date, setDate] = useState(getTodayDate());
@@ -324,191 +1695,247 @@ export default function App() {
             </div>
           </div>
 
-          {/* BILL INFO */}
-          <div className="px-5 py-5 bg-secondary/40 border-b border-border">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
-              <div className="flex flex-col gap-1.5 flex-1">
-                <label
-                  htmlFor="bill-date"
-                  className="hindi-text text-sm font-semibold text-foreground"
+          {/* TABS */}
+          <Tabs defaultValue="bill" className="w-full">
+            <div className="bg-saffron-50 border-b border-saffron-200 px-4 pt-3 no-print">
+              <TabsList className="bg-transparent gap-1 h-auto p-0">
+                <TabsTrigger
+                  value="bill"
+                  className="hindi-text font-semibold px-4 py-2 rounded-t-md rounded-b-none border-0 data-[state=active]:bg-card data-[state=active]:text-saffron-800 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-saffron-600 text-muted-foreground"
+                  data-ocid="nav.bill_tab"
                 >
-                  दिनांक:
-                </label>
-                <input
-                  id="bill-date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  data-ocid="bill.date_input"
-                  className="h-11 w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-                <span className="hidden">{formatDisplayDate(date)}</span>
-              </div>
-              <div className="flex flex-col gap-1.5 flex-[2]">
-                <label
-                  htmlFor="bill-firm"
-                  className="hindi-text text-sm font-semibold text-foreground"
+                  🧾 बिल बनाएं
+                </TabsTrigger>
+                <TabsTrigger
+                  value="stock"
+                  className="hindi-text font-semibold px-4 py-2 rounded-t-md rounded-b-none border-0 data-[state=active]:bg-card data-[state=active]:text-saffron-800 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-saffron-600 text-muted-foreground"
+                  data-ocid="nav.stock_tab"
                 >
-                  फर्म का नाम:
-                </label>
-                <Input
-                  id="bill-firm"
-                  type="text"
-                  placeholder="ग्राहक / फर्म का नाम लिखें..."
-                  value={firmName}
-                  onChange={(e) => setFirmName(e.target.value)}
-                  data-ocid="bill.firm_name_input"
-                  className="h-11 text-base hindi-text placeholder:text-muted-foreground"
-                />
-              </div>
+                  <Package className="h-4 w-4 mr-1.5" />
+                  स्टॉक
+                </TabsTrigger>
+                <TabsTrigger
+                  value="shopkeeper"
+                  className="hindi-text font-semibold px-4 py-2 rounded-t-md rounded-b-none border-0 data-[state=active]:bg-card data-[state=active]:text-saffron-800 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-saffron-600 text-muted-foreground"
+                  data-ocid="nav.shopkeeper_tab"
+                >
+                  <Store className="h-4 w-4 mr-1.5" />
+                  दुकानदार
+                </TabsTrigger>
+                <TabsTrigger
+                  value="history"
+                  className="hindi-text font-semibold px-4 py-2 rounded-t-md rounded-b-none border-0 data-[state=active]:bg-card data-[state=active]:text-saffron-800 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-saffron-600 text-muted-foreground"
+                  data-ocid="nav.history_tab"
+                >
+                  <History className="h-4 w-4 mr-1.5" />
+                  बिल हिस्ट्री
+                </TabsTrigger>
+              </TabsList>
             </div>
-          </div>
 
-          {/* PRODUCT TABLE */}
-          <div className="px-4 py-4 sm:px-6">
-            <h2 className="hindi-text text-base font-bold text-foreground mb-3 flex items-center gap-2">
-              <span className="inline-block w-1 h-5 bg-saffron-600 rounded-full" />
-              माल विवरण
-            </h2>
+            {/* ── BILLING TAB ── */}
+            <TabsContent value="bill" className="mt-0">
+              {/* BILL INFO */}
+              <div className="px-5 py-5 bg-secondary/40 border-b border-border">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
+                  <div className="flex flex-col gap-1.5 flex-1">
+                    <label
+                      htmlFor="bill-date"
+                      className="hindi-text text-sm font-semibold text-foreground"
+                    >
+                      दिनांक:
+                    </label>
+                    <input
+                      id="bill-date"
+                      type="date"
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                      data-ocid="bill.date_input"
+                      className="h-11 w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <span className="hidden">{formatDisplayDate(date)}</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5 flex-[2]">
+                    <label
+                      htmlFor="bill-firm"
+                      className="hindi-text text-sm font-semibold text-foreground"
+                    >
+                      फर्म का नाम:
+                    </label>
+                    <Input
+                      id="bill-firm"
+                      type="text"
+                      placeholder="ग्राहक / फर्म का नाम लिखें..."
+                      value={firmName}
+                      onChange={(e) => setFirmName(e.target.value)}
+                      data-ocid="bill.firm_name_input"
+                      className="h-11 text-base hindi-text placeholder:text-muted-foreground"
+                    />
+                  </div>
+                </div>
+              </div>
 
-            {/* Desktop table */}
-            <div className="hidden sm:block">
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-saffron-700 text-white">
-                    <th className="hindi-text px-3 py-2.5 text-center font-semibold rounded-tl-md">
-                      क्र.सं.
-                    </th>
-                    <th className="hindi-text px-3 py-2.5 text-left font-semibold">
-                      माल का नाम
-                    </th>
-                    <th className="hindi-text px-3 py-2.5 text-right font-semibold">
-                      दर (₹)
-                    </th>
-                    <th className="hindi-text px-3 py-2.5 text-right font-semibold">
-                      मात्रा
-                    </th>
-                    <th className="hindi-text px-3 py-2.5 text-right font-semibold rounded-tr-md">
-                      राशि (₹)
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
+              {/* PRODUCT TABLE */}
+              <div className="px-4 py-4 sm:px-6">
+                <h2 className="hindi-text text-base font-bold text-foreground mb-3 flex items-center gap-2">
+                  <span className="inline-block w-1 h-5 bg-saffron-600 rounded-full" />
+                  माल विवरण
+                </h2>
+
+                {/* Desktop table */}
+                <div className="hidden sm:block">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="bg-saffron-700 text-white">
+                        <th className="hindi-text px-3 py-2.5 text-center font-semibold rounded-tl-md">
+                          क्र.सं.
+                        </th>
+                        <th className="hindi-text px-3 py-2.5 text-left font-semibold">
+                          माल का नाम
+                        </th>
+                        <th className="hindi-text px-3 py-2.5 text-right font-semibold">
+                          दर (₹)
+                        </th>
+                        <th className="hindi-text px-3 py-2.5 text-right font-semibold">
+                          मात्रा
+                        </th>
+                        <th className="hindi-text px-3 py-2.5 text-right font-semibold rounded-tr-md">
+                          राशि (₹)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {CATEGORIES.map((cat) => {
+                        const startIndex = products.filter((p) => {
+                          const catIdx = CATEGORIES.indexOf(p.category);
+                          return catIdx < CATEGORIES.indexOf(cat);
+                        }).length;
+                        return (
+                          <>
+                            <tr key={`cat-${cat}`} className="bg-saffron-50">
+                              <td
+                                colSpan={5}
+                                className="hindi-text px-3 py-1.5 text-sm font-bold text-saffron-800 border-t border-saffron-200"
+                              >
+                                ▸ {cat}
+                              </td>
+                            </tr>
+                            {renderProductRows(cat, startIndex)}
+                          </>
+                        );
+                      })}
+                      <tr className="bg-saffron-50 border-t-2 border-saffron-700">
+                        <td
+                          colSpan={4}
+                          className="hindi-text px-3 py-3 text-right font-bold text-saffron-800 text-base"
+                        >
+                          कुल राशि:
+                        </td>
+                        <td className="px-3 py-3 text-right font-bold text-saffron-800 text-base">
+                          {formatCurrency(totalAmount)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile cards */}
+                <div className="sm:hidden space-y-4">
                   {CATEGORIES.map((cat) => {
-                    const _catProducts = products.filter(
-                      (p) => p.category === cat,
-                    );
                     const startIndex = products.filter((p) => {
                       const catIdx = CATEGORIES.indexOf(p.category);
                       return catIdx < CATEGORIES.indexOf(cat);
                     }).length;
                     return (
-                      <>
-                        <tr key={`cat-${cat}`} className="bg-saffron-50">
-                          <td
-                            colSpan={5}
-                            className="hindi-text px-3 py-1.5 text-sm font-bold text-saffron-800 border-t border-saffron-200"
-                          >
+                      <div key={`mcat-${cat}`}>
+                        <div className="bg-saffron-100 rounded-md px-3 py-1.5 mb-2">
+                          <span className="hindi-text text-sm font-bold text-saffron-800">
                             ▸ {cat}
-                          </td>
-                        </tr>
-                        {renderProductRows(cat, startIndex)}
-                      </>
+                          </span>
+                        </div>
+                        <div className="space-y-3">
+                          {renderMobileCards(cat, startIndex)}
+                        </div>
+                      </div>
                     );
                   })}
-                  <tr className="bg-saffron-50 border-t-2 border-saffron-700">
-                    <td
-                      colSpan={4}
-                      className="hindi-text px-3 py-3 text-right font-bold text-saffron-800 text-base"
-                    >
+                  <div className="rounded-md bg-saffron-700 text-white px-4 py-3 flex justify-between items-center">
+                    <span className="hindi-text font-bold text-base">
                       कुल राशि:
-                    </td>
-                    <td className="px-3 py-3 text-right font-bold text-saffron-800 text-base">
+                    </span>
+                    <span className="font-bold text-xl">
                       {formatCurrency(totalAmount)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile cards */}
-            <div className="sm:hidden space-y-4">
-              {CATEGORIES.map((cat) => {
-                const startIndex = products.filter((p) => {
-                  const catIdx = CATEGORIES.indexOf(p.category);
-                  return catIdx < CATEGORIES.indexOf(cat);
-                }).length;
-                return (
-                  <div key={`mcat-${cat}`}>
-                    <div className="bg-saffron-100 rounded-md px-3 py-1.5 mb-2">
-                      <span className="hindi-text text-sm font-bold text-saffron-800">
-                        ▸ {cat}
-                      </span>
-                    </div>
-                    <div className="space-y-3">
-                      {renderMobileCards(cat, startIndex)}
-                    </div>
+                    </span>
                   </div>
-                );
-              })}
-              <div className="rounded-md bg-saffron-700 text-white px-4 py-3 flex justify-between items-center">
-                <span className="hindi-text font-bold text-base">कुल राशि:</span>
-                <span className="font-bold text-xl">
-                  {formatCurrency(totalAmount)}
-                </span>
+                </div>
               </div>
-            </div>
-          </div>
 
-          <Separator className="mx-5" />
+              <Separator className="mx-5" />
 
-          {/* TERMS */}
-          <div className="px-5 py-5" data-ocid="bill.terms_section">
-            <h3 className="hindi-text text-sm font-bold text-foreground mb-2 flex items-center gap-1.5">
-              <span className="inline-block w-1 h-4 bg-saffron-600 rounded-full" />
-              नियम एवं शर्तें
-            </h3>
-            <div className="bg-amber-50 border border-amber-200 rounded-md px-4 py-3 space-y-1.5">
-              <p className="hindi-text text-sm text-foreground">
-                • 7 दिन की उधारी होगी।
-              </p>
-              <p className="hindi-text text-sm text-foreground">
-                • इससे ज़्यादा के लिए 2% ब्याज देना होगा।
-              </p>
-            </div>
-          </div>
+              {/* TERMS */}
+              <div className="px-5 py-5" data-ocid="bill.terms_section">
+                <h3 className="hindi-text text-sm font-bold text-foreground mb-2 flex items-center gap-1.5">
+                  <span className="inline-block w-1 h-4 bg-saffron-600 rounded-full" />
+                  नियम एवं शर्तें
+                </h3>
+                <div className="bg-amber-50 border border-amber-200 rounded-md px-4 py-3 space-y-1.5">
+                  <p className="hindi-text text-sm text-foreground">
+                    • 7 दिन की उधारी होगी।
+                  </p>
+                  <p className="hindi-text text-sm text-foreground">
+                    • इससे ज़्यादा के लिए 2% ब्याज देना होगा।
+                  </p>
+                </div>
+              </div>
 
-          {/* ACTIONS */}
-          <div className="no-print px-5 pb-6 flex flex-col sm:flex-row gap-3">
-            <Button
-              onClick={handlePrint}
-              data-ocid="bill.pdf_button"
-              className="flex-1 h-12 bg-saffron-700 hover:bg-saffron-800 text-white font-semibold text-base gap-2"
-            >
-              <Printer className="h-5 w-5" />
-              <span className="hindi-text">PDF डाउनलोड करें</span>
-            </Button>
-            <Button
-              onClick={handleWhatsAppShare}
-              data-ocid="bill.whatsapp_button"
-              className="flex-1 h-12 bg-[#25D366] hover:bg-[#1ebe5d] text-white font-semibold text-base gap-2"
-            >
-              {WHATSAPP_ICON}
-              <span className="hindi-text">WhatsApp पर भेजें</span>
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={isSaving}
-              data-ocid="bill.save_button"
-              variant="outline"
-              className="flex-1 h-12 border-saffron-600 text-saffron-700 hover:bg-saffron-50 font-semibold text-base gap-2"
-            >
-              <Save className="h-5 w-5" />
-              <span className="hindi-text">
-                {isSaving ? "सेव हो रहा है..." : "बिल सेव करें"}
-              </span>
-            </Button>
-          </div>
+              {/* ACTIONS */}
+              <div className="no-print px-5 pb-6 flex flex-col sm:flex-row gap-3">
+                <Button
+                  onClick={handlePrint}
+                  data-ocid="bill.pdf_button"
+                  className="flex-1 h-12 bg-saffron-700 hover:bg-saffron-800 text-white font-semibold text-base gap-2"
+                >
+                  <Printer className="h-5 w-5" />
+                  <span className="hindi-text">PDF डाउनलोड करें</span>
+                </Button>
+                <Button
+                  onClick={handleWhatsAppShare}
+                  data-ocid="bill.whatsapp_button"
+                  className="flex-1 h-12 bg-[#25D366] hover:bg-[#1ebe5d] text-white font-semibold text-base gap-2"
+                >
+                  {WHATSAPP_ICON}
+                  <span className="hindi-text">WhatsApp पर भेजें</span>
+                </Button>
+                <Button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  data-ocid="bill.save_button"
+                  variant="outline"
+                  className="flex-1 h-12 border-saffron-600 text-saffron-700 hover:bg-saffron-50 font-semibold text-base gap-2"
+                >
+                  <Save className="h-5 w-5" />
+                  <span className="hindi-text">
+                    {isSaving ? "सेव हो रहा है..." : "बिल सेव करें"}
+                  </span>
+                </Button>
+              </div>
+            </TabsContent>
+
+            {/* ── STOCK TAB ── */}
+            <TabsContent value="stock" className="mt-0">
+              <StockManager actor={actor} />
+            </TabsContent>
+
+            {/* ── SHOPKEEPER TAB ── */}
+            <TabsContent value="shopkeeper" className="mt-0">
+              <ShopkeeperManager actor={actor} />
+            </TabsContent>
+
+            {/* ── BILL HISTORY TAB ── */}
+            <TabsContent value="history" className="mt-0">
+              <BillHistory actor={actor} />
+            </TabsContent>
+          </Tabs>
 
           {/* FOOTER */}
           <div className="bg-saffron-800 px-5 py-3 text-center">

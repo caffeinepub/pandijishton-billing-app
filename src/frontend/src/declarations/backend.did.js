@@ -8,6 +8,13 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+export const Shopkeeper = IDL.Record({
+  'id' : IDL.Nat,
+  'joinDate' : IDL.Text,
+  'name' : IDL.Text,
+  'shopName' : IDL.Text,
+  'phone' : IDL.Text,
+});
 export const BillItem = IDL.Record({
   'rate' : IDL.Nat,
   'productName' : IDL.Text,
@@ -20,16 +27,39 @@ export const Bill = IDL.Record({
   'totalAmount' : IDL.Nat,
   'items' : IDL.Vec(BillItem),
 });
+export const StockItem = IDL.Record({
+  'qty' : IDL.Nat,
+  'productId' : IDL.Text,
+});
 
 export const idlService = IDL.Service({
+  'addShopkeeper' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [Shopkeeper],
+      [],
+    ),
+  'addStock' : IDL.Func([IDL.Text, IDL.Nat], [], []),
+  'deductStock' : IDL.Func([IDL.Text, IDL.Nat], [], []),
   'getAllBills' : IDL.Func([], [IDL.Vec(Bill)], ['query']),
+  'getAllShopkeepers' : IDL.Func([], [IDL.Vec(Shopkeeper)], ['query']),
+  'getAllStock' : IDL.Func([], [IDL.Vec(StockItem)], ['query']),
   'getBill' : IDL.Func([IDL.Nat], [Bill], ['query']),
+  'getShopkeeperCount' : IDL.Func([], [IDL.Nat], ['query']),
+  'getStock' : IDL.Func([IDL.Text], [IDL.Nat], ['query']),
   'saveBill' : IDL.Func([IDL.Nat, Bill], [], []),
+  'setStock' : IDL.Func([IDL.Text, IDL.Nat], [], []),
 });
 
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
+  const Shopkeeper = IDL.Record({
+    'id' : IDL.Nat,
+    'joinDate' : IDL.Text,
+    'name' : IDL.Text,
+    'shopName' : IDL.Text,
+    'phone' : IDL.Text,
+  });
   const BillItem = IDL.Record({
     'rate' : IDL.Nat,
     'productName' : IDL.Text,
@@ -42,11 +72,24 @@ export const idlFactory = ({ IDL }) => {
     'totalAmount' : IDL.Nat,
     'items' : IDL.Vec(BillItem),
   });
+  const StockItem = IDL.Record({ 'qty' : IDL.Nat, 'productId' : IDL.Text });
   
   return IDL.Service({
+    'addShopkeeper' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [Shopkeeper],
+        [],
+      ),
+    'addStock' : IDL.Func([IDL.Text, IDL.Nat], [], []),
+    'deductStock' : IDL.Func([IDL.Text, IDL.Nat], [], []),
     'getAllBills' : IDL.Func([], [IDL.Vec(Bill)], ['query']),
+    'getAllShopkeepers' : IDL.Func([], [IDL.Vec(Shopkeeper)], ['query']),
+    'getAllStock' : IDL.Func([], [IDL.Vec(StockItem)], ['query']),
     'getBill' : IDL.Func([IDL.Nat], [Bill], ['query']),
+    'getShopkeeperCount' : IDL.Func([], [IDL.Nat], ['query']),
+    'getStock' : IDL.Func([IDL.Text], [IDL.Nat], ['query']),
     'saveBill' : IDL.Func([IDL.Nat, Bill], [], []),
+    'setStock' : IDL.Func([IDL.Text, IDL.Nat], [], []),
   });
 };
 

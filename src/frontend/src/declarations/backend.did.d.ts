@@ -22,10 +22,26 @@ export interface BillItem {
   'quantity' : bigint,
   'amount' : bigint,
 }
+export interface Shopkeeper {
+  'id' : bigint,
+  'joinDate' : string,
+  'name' : string,
+  'shopName' : string,
+  'phone' : string,
+}
+export interface StockItem { 'qty' : bigint, 'productId' : string }
 export interface _SERVICE {
+  'addShopkeeper' : ActorMethod<[string, string, string, string], Shopkeeper>,
+  'addStock' : ActorMethod<[string, bigint], undefined>,
+  'deductStock' : ActorMethod<[string, bigint], undefined>,
   'getAllBills' : ActorMethod<[], Array<Bill>>,
+  'getAllShopkeepers' : ActorMethod<[], Array<Shopkeeper>>,
+  'getAllStock' : ActorMethod<[], Array<StockItem>>,
   'getBill' : ActorMethod<[bigint], Bill>,
+  'getShopkeeperCount' : ActorMethod<[], bigint>,
+  'getStock' : ActorMethod<[string], bigint>,
   'saveBill' : ActorMethod<[bigint, Bill], undefined>,
+  'setStock' : ActorMethod<[string, bigint], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];
